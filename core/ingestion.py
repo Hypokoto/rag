@@ -1,32 +1,30 @@
-import os
 from pathlib import Path
-
 import chromadb
-from sentence_transformers import SentenceTransformer
+import ollama
 
 # --- Setup ---
 CHROMA_PATH = "chroma_db"
 UPLOAD_PATH = "uploads"
-EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # small, fast, good quality
+EMBED_MODEL = "nomic-embed-text"
 
-# Initialize ChromaDB client and collection
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 collection = client.get_or_create_collection(name="documents")
 
-# Initialize the embedding model
-embedder = SentenceTransformer(EMBED_MODEL)
+
+def get_embedding(text: str) -> list[float]:
+    """Get embedding vector from Ollama."""
+    response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+    return response["embedding"]
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 50) -> list[str]:
     """Split text into overlapping chunks."""
     chunks = []
     start = 0
-
     while start < len(text):
         end = start + chunk_size
         chunks.append(text[start:end])
-        start += chunk_size - overlap  # overlap keeps context between chunks
-
+        start += chunk_size - overlap
     return chunks
 
 
@@ -40,19 +38,21 @@ def ingest_file(filepath: str) -> dict:
     if path.suffix not in [".txt", ".md"]:
         return {"success": False, "error": "Only .txt and .md files supported for now"}
 
-    # Read the file
     text = path.read_text(encoding="utf-8")
 
     if not text.strip():
         return {"success": False, "error": "File is empty"}
 
-    # Chunk the text
+    # Delete old chunks from this file if it was ingested before
+    existing = collection.get(where={"source": path.name})
+    if existing["ids"]:
+        collection.delete(ids=existing["ids"])
+
     chunks = chunk_text(text)
 
-    # Embed all chunks at once (faster than one by one)
-    embeddings = embedder.encode(chunks).tolist()
+    print(f"Embedding {len(chunks)} chunks via Ollama...")
+    embeddings = [get_embedding(chunk) for chunk in chunks]
 
-    # Store in ChromaDB
     ids = [f"{path.stem}_chunk_{i}" for i in range(len(chunks))]
 
     collection.add(
@@ -74,9 +74,7 @@ def list_ingested() -> list[str]:
     return list(sources)
 
 
-# --- Quick test when run directly ---
 if __name__ == "__main__":
-    # Create a test file
     test_file = Path("uploads/test.txt")
     test_file.write_text(
         "Retrieval Augmented Generation (RAG) is a technique that combines "
