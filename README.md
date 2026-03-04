@@ -37,7 +37,7 @@ ollama pull nomic-embed-text
 ## Setup
 ```bash
 # Clone the repo
-git clone https://github.com/YOUR_USERNAME/rag-project.git
+git clone https://github.com/hypokoto/rag-project.git
 cd rag-project
 
 # Create virtual environment
